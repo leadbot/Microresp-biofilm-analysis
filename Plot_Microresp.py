@@ -5,212 +5,140 @@ Created on Fri Jun 28 12:20:25 2024
 @author: dl923 / leadbot
 """
 
-####updated script
+#%% Microresp CO2 % plots
+
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import glob
-import os
+import xlrd 
+import seaborn
 
-#%% CO2 absorbance only
-# Function to process a single pair of T0 and T1 files
+result_folder = "Microresp_results"
+layout_file_path = os.path.join(result_folder, 'Layout.csv')  # Update with your local file path
+#normalise values by reading times
+hour_list={0:6,
+           1:6,
+           2:3,
+           3:6,
+           4:'',
+           5:'',
+           6:4,
+           7:6,
+           8:6
+               }
+
 def process_files(t0_file, t1_file):
+    """
+    Processes the Excel files to compute differences and reverses the order of values in each row.
+
+    Parameters:
+    t0_file (str): Path to the time point 0 Excel file.
+    t1_file (str): Path to the time point 1 Excel file.
+
+    Returns:
+    pd.DataFrame: The DataFrame with computed differences and reversed row values.
+    """
     # Read the Excel files starting from the correct cell (B11 corresponds to row index 10 and column index 1)
     t0_data = pd.read_excel(t0_file, skiprows=10, usecols=range(1, 1+12), header=None)
-    t1_data = pd.read_excel(t1_file, skiprows=10, usecols=range(1, 1+12), header=None)
-    print(t0_data, t1_data)
+    t1_data = pd.read_excel(t1_file, skiprows=10, usecols=range(1, 1+12), header=None)   
+    # Reverse the values in each row
+    reversed_t0_data = t0_data.apply(lambda row: row[::-1], axis=1)
+    reversed_t1_data = t1_data.apply(lambda row: row[::-1], axis=1)
+    
+    return reversed_t0_data, reversed_t1_data
+
+def calculate_group_statistics(layout_file, t0file, t1file, hour_list):
+    """
+    Calculates the mean and standard deviation for each group defined by the layout.
+
+    Parameters:
+    reversed_df (pd.DataFrame): The DataFrame with reversed row values.
+    layout_file (str): Path to the layout CSV file.
+
+    Returns:
+    dict: A dictionary with group names as keys and a tuple (mean, std) as values.
+    """
+    # Load the layout file
+    layout_df = pd.read_csv(layout_file, header=None)
+    
+    #read data from results files
+    t0_data, t1_data = process_files(t0file, t1file)
+    
+    # Calculate the mean of the "Blank" values
+    blank_mask = layout_df == "Blank"
+    blank_t0_values = t0_data[blank_mask].values.flatten()
+    # Filter out NaNs from the blank values
+    blank_t0_values = blank_t0_values[~np.isnan(blank_t0_values)]
+    # Calculate mean from blank t0 values
+    mean_blank_t0 = np.mean(blank_t0_values)
+    
     # Calculate the results by subtracting T0 from T1
-    results = -1 * (t1_data.values - t0_data.values) 
-    print(str(t0_file))
-    print(results)
+    normalised_results = (t1_data.values[0:24] / t0_data.values[0:24]) * mean_blank_t0
+
+    ### Microresp curve values ###
+    A=-0.2265
+    B=-1.606
+    D=-6.771
+    pct_co2_df=(A+B)/ (1+D * normalised_results)
     
-    # Define the groups (flipping the column indices)
-    groups = {
-        '1% innoculum + 25mg biofilm': [(0, 11), (0, 10), (0, 9)],   # wells A1, A2, A3 -> A12, A11, A10
-        '5% innoculum + 25mg': [(0, 8), (0, 7), (0, 6)],   # wells A4, A5, A6 -> A9, A8, A7
-        '10% innoculum + 25mg': [(0, 3), (0, 4), (0, 5)],  # wells A7, A8, A9 -> A6, A5, A4
-        '10% innoculum + 25mg Glu ctrl': [(0, 0), (0, 1), (0, 2)],  # wells A10, A11, A13 -> A3, A2, A1
-        '0% innoculum + 25mg Glu ctrl': [(1, 0), (1, 1), (1, 2)],  # wells B10, B11, B13 -> B3, B2, B1
-        '10% innoculum only': [(1, 3), (1, 4), (1, 5)]  # wells B5, B6, B7 -> B6, B5, B4
-    }
-    # Calculate mean and standard deviation for each group
-    group_means = {}
-    group_stds = {}
-
-    for group, indices in groups.items():
-        values = [results[r][c] for r, c in indices]
-        group_means[group] = np.mean(values)
-        group_stds[group] = np.std(values)
-
-    return group_means, group_stds, t0_data, t1_data, t0_data.values, t1_data.values
-
-# Initialize dictionaries to hold all means and standard deviations per day
-all_group_means = {}
-all_group_stds = {}
-
-result_folder = "Microresp_results"
-
-# Find all T0 files and process corresponding T1 files
-t0_files = glob.glob(os.path.join(result_folder, 'Microresp_day_*_t0.xls'))
-
-if not t0_files:
-    print("No T0 files found in the result folder.")
-else:
-    for t0_file in t0_files:
-        day = t0_file.split('_')[3]
-        t1_file = os.path.join(result_folder, f'Microresp_day_{day}_t1.xls')
-        if os.path.exists(t1_file):  # Check if corresponding T1 file exists
-            try:
-                group_means, group_stds, t0d, t1v, t0v, t1v = process_files(t0_file, t1_file)
-                for group in group_means:
-                    if group not in all_group_means:
-                        all_group_means[group] = {}
-                        all_group_stds[group] = {}
-                    all_group_means[group][day] = group_means[group]
-                    all_group_stds[group][day] = group_stds[group]
-            except Exception as e:
-                print(f"Error processing files for day {day}: {e}")
-        else:
-            print(f"T1 file for day {day} not found: {t1_file}")
-
-if all_group_means:
-    # Plot all groups on a single scatter plot
-    plt.figure(figsize=(12, 8))
-    plt.title('Mean Result and Standard Deviation for Each Group by Day')
-
-    markers = ['o', 's', '^', 'D', 'P', '*']
-    colors = ['b', 'g', 'r', 'c', 'm', 'y']
-
-    for (group, means), marker, color in zip(all_group_means.items(), markers, colors):
-        days = sorted(means.keys())
-        mean_values = [means[day] for day in days]
-        std_values = [all_group_stds[group][day] for day in days]
-        
-        plt.errorbar(days, mean_values, yerr=std_values, fmt=marker, label=group, capsize=5, color=color)
-
-    plt.xlabel('Day')
-    plt.ylabel('Cresol red absorbance change')
-    plt.xticks(rotation=45)
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
-else:
-    print("No data processed. Please check the files and the result folder path.")
-
-#%% CO2 mM concentration estimation
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import glob
-import os
-
-# Constants for CO2 calculation
-pKa = 6.1  # pKa for bicarbonate buffer system
-calibration_slope = -1.0  # Example slope, convert absorbance change to pH change; negative for typical cresol red response
-initial_pH = 7.0
-initial_HCO3_concentration = 1.0  # in mM, example value
-
-# Function to transform absorbance to CO2 concentration
-def transform_absorbance_to_co2(A_T0, A_T1):
-    # Calculate change in absorbance
-    delta_A = A_T1 - A_T0
+    # Normalise results AFTER Co2 calculation as reading timepoints are different
+    day=t0file.split('_')[-2] 
+    hour=hour_list[int(day)]
+    time_normalised_pct_co2_df=(pct_co2_df / hour)
     
-    # Convert change in absorbance to change in pH using the calibration curve
-    delta_pH = delta_A * calibration_slope
+    # Create a DataFrame from the results
+    results_df = pd.DataFrame(time_normalised_pct_co2_df)
     
-    # Calculate final pH
-    final_pH = initial_pH + delta_pH
-    
-    # Use Henderson-Hasselbalch equation to find initial and final CO2 concentration
-    initial_CO2_concentration = initial_HCO3_concentration / (10**(initial_pH - pKa))
-    final_CO2_concentration = initial_HCO3_concentration / (10**(final_pH - pKa))
-    
-    # Calculate change in CO2 concentration
-    delta_CO2_concentration = final_CO2_concentration - initial_CO2_concentration
-    
-    return delta_CO2_concentration
-
-# Function to process a single pair of T0 and T1 files
-def process_files(t0_file, t1_file):
-    # Read the Excel files starting from the correct cell (B11 corresponds to row index 10 and column index 1)
-    t0_data = pd.read_excel(t0_file, skiprows=10, usecols=range(1, 1+12), header=None)
-    t1_data = pd.read_excel(t1_file, skiprows=10, usecols=range(1, 1+12), header=None)
-    
-    # Calculate the results by subtracting T0 from T1 and transforming to CO2 concentration
-    results = np.vectorize(transform_absorbance_to_co2)(t0_data.values[0:24], t1_data.values[0:24])
-    
-    # Define the groups (flipping the column indices)
-    groups = {
-        '1% 25mg': [(0, 11), (0, 10), (0, 9)],   # wells A1, A2, A3 -> A12, A11, A10
-        '5% 25mg': [(0, 8), (0, 7), (0, 6)],     # wells A4, A5, A6 -> A9, A8, A7
-        '10% 25mg': [(0, 3), (0, 4), (0, 5)],    # wells A7, A8, A9 -> A6, A5, A4
-        '10% Glu 25mg ctrl': [(0, 0), (0, 1), (0, 2)],  # wells A10, A11, A13 -> A3, A2, A1
-        '0% Glu 25mg ctrl': [(1, 0), (1, 1), (1, 2)],   # wells B10, B11, B13 -> B3, B2, B1
-        '10% ctrl 0mg': [(1, 3), (1, 4), (1, 5)]        # wells B5, B6, B7 -> B6, B5, B4
-    }
+    # Get unique groups from the layout
+    unique_groups = layout_df.values.flatten()
+    unique_groups = [group for group in unique_groups if group != "Blank"]
+    unique_groups = sorted(set(unique_groups))
+    print(unique_groups)
+    # Initialize a dictionary to store statistics for each group
+    group_statistics = {}
     
     # Calculate mean and standard deviation for each group
-    group_means = {}
-    group_stds = {}
+    for group in unique_groups:
+        mask = layout_df == group
+        group_values = results_df[mask].values.flatten()
+        group_values = group_values[~np.isnan(group_values)]  # Filter out NaNs
+        mean = np.mean(group_values)
+        std = np.std(group_values)
+        group_statistics[group] = (mean, std)
+    
+    return group_statistics, layout_df
 
-    for group, indices in groups.items():
-        values = [results[r][c] for r, c in indices]
-        group_means[group] = np.mean(values)
-        group_stds[group] = np.std(values)
+# Identify all pairs of T0 and T1 files
+file_pairs = []
+for filename in os.listdir(result_folder):
+    if "t0" in filename:
+        t1_filename = filename.replace("t0", "t1")
+        if t1_filename in os.listdir(result_folder):
+            file_pairs.append((os.path.join(result_folder, filename), os.path.join(result_folder, t1_filename)))
 
-    return group_means, group_stds
+# Process each pair of files and collect the results
+all_stats = []
 
-# Initialize dictionaries to hold all means and standard deviations per day
-all_group_means = {}
-all_group_stds = {}
+for t0_file, t1_file in file_pairs:
+    stats = calculate_group_statistics(layout_file_path, t0_file, t1_file, hour_list)
+    day = t0_file.split('_')[-2]  # Extract day from filename
+    for group in stats[0]:
+        mean=stats[0][group][0]
+        std=stats[0][group][1]
+        all_stats.append({
+            "Group": group,
+            "Day": day,
+            "Mean": mean,
+            "Std": std
+        })
 
-result_folder = "Microresp_results"
+# Create a DataFrame from the collected statistics
+stats_df = pd.DataFrame(all_stats)
 
-# Find all T0 files and process corresponding T1 files
-t0_files = glob.glob(os.path.join(result_folder, 'Microresp_day_*_t0.xls'))
-
-if not t0_files:
-    print("No T0 files found in the result folder.")
-else:
-    for t0_file in t0_files:
-        day = t0_file.split('_')[3]
-        t1_file = os.path.join(result_folder, f'Microresp_day_{day}_t1.xls')
-        if os.path.exists(t1_file):  # Check if corresponding T1 file exists
-            try:
-                group_means, group_stds = process_files(t0_file, t1_file)
-                for group in group_means:
-                    if group not in all_group_means:
-                        all_group_means[group] = {}
-                        all_group_stds[group] = {}
-                    all_group_means[group][day] = group_means[group]
-                    all_group_stds[group][day] = group_stds[group]
-            except Exception as e:
-                print(f"Error processing files for day {day}: {e}")
-        else:
-            print(f"T1 file for day {day} not found: {t1_file}")
-
-if all_group_means:
-    # Plot all groups on a single scatter plot
-    plt.figure(figsize=(12, 8))
-    plt.title('Mean CO2 Concentration and Standard Deviation for Each Group by Day')
-
-    markers = ['o', 's', '^', 'D', 'P', '*']
-    colors = ['b', 'g', 'r', 'c', 'm', 'y']
-
-    for (group, means), marker, color in zip(all_group_means.items(), markers, colors):
-        days = sorted(means.keys())
-        mean_values = [means[day] for day in days]
-        std_values = [all_group_stds[group][day] for day in days]
-        
-        plt.errorbar(days, mean_values, yerr=std_values, fmt=marker, label=group, capsize=5, color=color)
-
-    plt.xlabel('Day')
-    plt.ylabel('CO2 Concentration (mM)')
-    plt.xticks(rotation=45)
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
-else:
-    print("No data processed. Please check the files and the result folder path.")
+# Plot the data using Seaborn
+plt.figure(figsize=(12, 6))
+sns.lineplot(data=stats_df, x="Day", y="Mean", hue="Group", marker="o", err_style="bars", ci="sd")
+plt.title("Microresp Results")
+plt.xlabel("Day")
+plt.ylabel("CO2 Concentration (%)")
+plt.legend(title="Group")
+plt.show()
