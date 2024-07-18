@@ -10,21 +10,32 @@ Created on Fri Jun 28 12:20:25 2024
 import pandas as pd
 import numpy as np
 import xlrd 
-import seaborn
+import seaborn as sns
+import sys
+import os
+import matplotlib.pyplot as plt
 
 result_folder = "Microresp_results"
-layout_file_path = os.path.join(result_folder, 'Layout.csv')  # Update with your local file path
+layoutfile='Layout_R3.csv'
+
 #normalise values by reading times
-hour_list={0:6,
-           1:6,
-           2:3,
-           3:6,
-           4:'',
-           5:'',
-           6:4,
-           7:6,
-           8:6
+hour_list={0:2,
+           1:6
                }
+
+hour_list = {
+    0: 6,
+    1: 6,
+    2: 3,
+    3: 6,
+    4: '',
+    5: '',
+    6: 4,
+    7: 6,
+    8: 6,
+    10: 6,
+    13:2
+}
 
 def process_files(t0_file, t1_file):
     """
@@ -107,10 +118,21 @@ def calculate_group_statistics(layout_file, t0file, t1file, hour_list):
     
     return group_statistics, layout_df
 
+
+while True:
+     try:
+          layout_file_path = os.path.join(result_folder, layoutfile)  # Update with your local file path
+     except Exception as e:
+               exc_type, exc_obj, exc_tb = sys.exc_info()
+               fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+               print('\nError:', e)         
+               exit_error_countdown()
+               print("####Error reading layout csv file###")
+     break
 # Identify all pairs of T0 and T1 files
 file_pairs = []
 for filename in os.listdir(result_folder):
-    if "t0" in filename:
+    if "t0" in filename and "R3" in filename:
         t1_filename = filename.replace("t0", "t1")
         if t1_filename in os.listdir(result_folder):
             file_pairs.append((os.path.join(result_folder, filename), os.path.join(result_folder, t1_filename)))
@@ -119,26 +141,53 @@ for filename in os.listdir(result_folder):
 all_stats = []
 
 for t0_file, t1_file in file_pairs:
-    stats = calculate_group_statistics(layout_file_path, t0_file, t1_file, hour_list)
+    stats, layout = calculate_group_statistics(layout_file_path, t0_file, t1_file, hour_list)
     day = t0_file.split('_')[-2]  # Extract day from filename
-    for group in stats[0]:
-        mean=stats[0][group][0]
-        std=stats[0][group][1]
+    for group in stats:
+        mean=stats[group][0]
+        std=stats[group][1]
         all_stats.append({
             "Group": group,
             "Day": day,
             "Mean": mean,
             "Std": std
         })
+    final_day=day
 
 # Create a DataFrame from the collected statistics
 stats_df = pd.DataFrame(all_stats)
 
-# Plot the data using Seaborn
+# Ensure the 'Day' column is treated as integers for correct numerical sorting
+stats_df['Day'] = stats_df['Day'].astype(int)
+
+# Sort the DataFrame by the 'Day' column to ensure correct ordering
+stats_df = stats_df.sort_values(by='Day')
+
+# Use the HLS palette
+palette = sns.color_palette("hls", len(stats_df["Group"].unique()))
+
+# Define a list of unique markers
+markers = ['o', 's', '^', 'D', 'P', '*', 'X', 'H', 'v', '<', '>', '8']
+
+# Create a color and marker dictionary to map groups to colors and markers
+color_dict = {group: color for group, color in zip(stats_df["Group"].unique(), palette)}
+marker_dict = {group: marker for group, marker in zip(stats_df["Group"].unique(), markers)}
+
+# Plot the data using Seaborn and Matplotlib
 plt.figure(figsize=(12, 6))
-sns.lineplot(data=stats_df, x="Day", y="Mean", hue="Group", marker="o", err_style="bars", ci="sd")
+
+for group in stats_df["Group"].unique():
+    group_data = stats_df[stats_df["Group"] == group]
+    color = color_dict[group]
+    marker = marker_dict[group]
+    plt.errorbar(group_data["Day"], group_data["Mean"], yerr=group_data["Std"], label=group, marker=marker, linestyle='--', markersize=8, color=color, capsize=5)
+    plt.fill_between(group_data["Day"], group_data["Mean"] - group_data["Std"], group_data["Mean"] + group_data["Std"], alpha=0.2, color=color)
+
 plt.title("Microresp Results")
 plt.xlabel("Day")
-plt.ylabel("CO2 Concentration (%)")
+plt.ylabel("CO2 Concentration (Δ%.h)")
 plt.legend(title="Group")
+plt.grid(True)
+plt.tight_layout()
 plt.show()
+fig.savefig("Miscroresp_results_day_"+str(final_day)+".png", dpi=600, bbox_inches='tight')
