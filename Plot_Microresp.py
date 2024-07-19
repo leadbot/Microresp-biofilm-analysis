@@ -174,7 +174,7 @@ color_dict = {group: color for group, color in zip(stats_df["Group"].unique(), p
 marker_dict = {group: marker for group, marker in zip(stats_df["Group"].unique(), markers)}
 
 # Plot the data using Seaborn and Matplotlib
-plt.figure(figsize=(12, 6))
+fig=plt.figure(figsize=(12, 6))
 
 for group in stats_df["Group"].unique():
     group_data = stats_df[stats_df["Group"] == group]
