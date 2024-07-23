@@ -20,22 +20,11 @@ layoutfile='Layout_R3.csv'
 
 #normalise values by reading times
 hour_list={0:2,
-           1:6
+           1:6,
+           2:6,
+           5:7
                }
 
-hour_list = {
-    0: 6,
-    1: 6,
-    2: 3,
-    3: 6,
-    4: '',
-    5: '',
-    6: 4,
-    7: 6,
-    8: 6,
-    10: 6,
-    13:2
-}
 
 def process_files(t0_file, t1_file):
     """
